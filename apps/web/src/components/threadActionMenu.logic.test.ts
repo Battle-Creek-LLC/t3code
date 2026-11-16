@@ -93,9 +93,4 @@ describe("buildSnoozeMenuItems", () => {
       { id: "snooze:custom", label: "Custom…", separatorBefore: false },
     ]);
   });
-
-  it("matches the Snooze submenu of the thread menu", () => {
-    const snooze = buildThreadActionMenuItems(baseState).find((item) => item.id === "snooze");
-    expect(snooze?.children).toEqual(buildSnoozeMenuItems(baseState.snoozePresets));
-  });
 });

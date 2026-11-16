@@ -47,6 +47,7 @@ import {
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
 import { requestCustomSnooze } from "../CustomSnoozeDialog";
 import { pickSnoozePreset, resolveSnoozePresets } from "../Sidebar.snooze";
 import { buildSnoozeMenuItems } from "../threadActionMenu.logic";
@@ -285,6 +286,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       return;
     const threadKey = scopedThreadKey(activeThreadRef);
     setUnsnoozingThreadKey(threadKey);
+    // A wake makes the pending snooze undo stale; undoing it would wake the thread again.
+    ThreadUndo.invalidate("snooze", threadKey);
     // Commands settle into a result, so this always runs.
     const recovery = activeThreadShell?.limitRecovery;
     const recoveryOwnsSnooze =
@@ -668,7 +671,6 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         }),
       );
     };
-  // The snooze key opens the snooze choices under the thread's sidebar row.
   const handleSnoozeActiveThreadFromMenu = async (threadRef: ScopedThreadRef) => {
     const api = readLocalApi();
     const thread = readThreadShell(threadRef);
@@ -679,7 +681,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         stackedThreadToast({
           type: "warning",
           title: "Could not snooze thread",
-          description: "This thread is waiting on you or starting a turn. Snooze it after that.",
+          description: "This thread has a pending request, message or turn. Snooze it after that.",
         }),
       );
       return;
@@ -689,11 +691,16 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       `li[data-thread-item="${CSS.escape(scopedThreadKey(threadRef))}"]`,
     );
     const rect = row?.getBoundingClientRect();
-    // A hidden sidebar has no row to anchor to, so the menu opens mid-window instead.
-    const position =
-      rect && rect.width > 0
-        ? { x: Math.round(rect.left), y: Math.round(rect.bottom) }
-        : { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 3) };
+    // A collapsed sidebar or a row scrolled out of view leaves no anchor on screen.
+    const rowVisible =
+      rect !== undefined &&
+      rect.width > 0 &&
+      rect.left >= 0 &&
+      rect.top >= 0 &&
+      rect.bottom <= window.innerHeight;
+    const position = rowVisible
+      ? { x: Math.round(rect.left), y: Math.round(rect.bottom) }
+      : { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 3) };
     const clicked = await settlePromise(() =>
       api.contextMenu.show(buildSnoozeMenuItems(presets), position),
     );
@@ -726,6 +733,7 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
       if (!activeThreadShell || !activeThreadRef || !serverConfigLoaded) return;
       if (activeThreadSnoozed) {
+        if (isUnsnoozing) return;
         void handleUnsnoozeActiveThread();
         return;
       }
