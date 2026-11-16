@@ -36,6 +36,24 @@ export type DraftActionMenuId =
   | "project-settings"
   | "discard";
 
+/** The snooze choices: each preset, then a custom time. */
+export function buildSnoozeMenuItems(
+  presets: ReadonlyArray<SnoozePreset>,
+): Array<ContextMenuItem<`snooze:${string}`>> {
+  return [
+    ...presets.map((preset) => ({
+      id: `snooze:${preset.id}` as const,
+      label: preset.label,
+      detail: preset.whenLabel,
+    })),
+    {
+      id: "snooze:custom" as const,
+      label: "Custom…",
+      separatorBefore: presets.length > 0,
+    },
+  ];
+}
+
 export function buildDraftActionMenuItems(options: {
   readonly hasPath: boolean;
   readonly hasBranch: boolean;
@@ -152,18 +170,7 @@ export function buildThreadActionMenuItems(
                 label: "Snooze",
                 icon: "clock",
                 disabled: !state.canSnoozeNow,
-                children: [
-                  ...state.snoozePresets.map((preset) => ({
-                    id: `snooze:${preset.id}` as const,
-                    label: preset.label,
-                    detail: preset.whenLabel,
-                  })),
-                  {
-                    id: "snooze:custom" as const,
-                    label: "Custom…",
-                    separatorBefore: state.snoozePresets.length > 0,
-                  },
-                ],
+                children: buildSnoozeMenuItems(state.snoozePresets),
               },
         ]
       : []),
