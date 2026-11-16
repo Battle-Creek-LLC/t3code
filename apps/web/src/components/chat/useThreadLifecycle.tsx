@@ -24,6 +24,7 @@ import {
   RuntimeMode,
 } from "@t3tools/contracts";
 import {
+  canSnooze,
   effectiveSnoozed,
   snoozeWakeLabel,
   threadWokeAt,
@@ -42,9 +43,16 @@ import { type SetStateAction, useRef, useState } from "react";
 import { useNavigate, useRouter } from "@tanstack/react-router";
 import {
   isAtomCommandInterrupted,
+  settlePromise,
   squashAtomCommandFailure,
   type AtomCommandResult,
 } from "@t3tools/client-runtime/state/runtime";
+import * as ThreadUndo from "@t3tools/client-runtime/state/thread-undo";
+import { requestCustomSnooze } from "../CustomSnoozeDialog";
+import { pickSnoozePreset, resolveSnoozePresets } from "../Sidebar.snooze";
+import { buildSnoozeMenuItems } from "../threadActionMenu.logic";
+import { readLocalApi } from "../../localApi";
+import { useClientSettings } from "../../hooks/useSettings";
 import { useUiStateStore } from "../../uiStateStore";
 import { type ChatMessage, DEFAULT_INTERACTION_MODE } from "../../types";
 import { AlarmClockIcon, CheckCircle2Icon } from "lucide-react";
@@ -181,7 +189,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
   } = input;
   const navigate = useNavigate();
   const router = useRouter();
-  const { settleThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const { settleThread, snoozeThread, pinThread, confirmAndUnpinThread } = useThreadActions();
+  const timestampFormat = useClientSettings((s) => s.timestampFormat);
   const canWriteSourceControl = useEnvironmentScope(environmentId, AuthSourceControlWriteScope);
   const switchGitRef = useAtomCommand(vcsEnvironment.switchRef, { reportFailure: false });
   const updateThreadMetadata = useOrchestrationCommand(threadEnvironment.updateMetadata, {
@@ -277,6 +286,8 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       return;
     const threadKey = scopedThreadKey(activeThreadRef);
     setUnsnoozingThreadKey(threadKey);
+    // A wake makes the pending snooze undo stale; undoing it would wake the thread again.
+    ThreadUndo.invalidate("snooze", threadKey);
     // Commands settle into a result, so this always runs.
     const recovery = activeThreadShell?.limitRecovery;
     const recoveryOwnsSnooze =
@@ -660,6 +671,53 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
         }),
       );
     };
+  const handleSnoozeActiveThreadFromMenu = async (threadRef: ScopedThreadRef) => {
+    const api = readLocalApi();
+    const thread = readThreadShell(threadRef);
+    if (!api || !thread) return;
+    const now = new Date();
+    if (!canSnooze(thread, { now: now.toISOString() })) {
+      toastManager.add(
+        stackedThreadToast({
+          type: "warning",
+          title: "Could not snooze thread",
+          description: "This thread has a pending request, message or turn. Snooze it after that.",
+        }),
+      );
+      return;
+    }
+    const presets = resolveSnoozePresets(now, timestampFormat, threadRef.environmentId);
+    const row = document.querySelector<HTMLElement>(
+      `li[data-thread-item="${CSS.escape(scopedThreadKey(threadRef))}"]`,
+    );
+    const rect = row?.getBoundingClientRect();
+    // A collapsed sidebar or a row scrolled out of view leaves no anchor on screen.
+    const rowVisible =
+      rect !== undefined &&
+      rect.width > 0 &&
+      rect.left >= 0 &&
+      rect.top >= 0 &&
+      rect.bottom <= window.innerHeight;
+    const position = rowVisible
+      ? { x: Math.round(rect.left), y: Math.round(rect.bottom) }
+      : { x: Math.round(window.innerWidth / 2), y: Math.round(window.innerHeight / 3) };
+    const clicked = await settlePromise(() =>
+      api.contextMenu.show(buildSnoozeMenuItems(presets), position),
+    );
+    if (clicked._tag === "Failure" || clicked.value === null) return;
+    const choice =
+      clicked.value === "snooze:custom"
+        ? await requestCustomSnooze()
+        : pickSnoozePreset(
+            presets,
+            clicked.value.slice("snooze:".length),
+            timestampFormat,
+            threadRef.environmentId,
+          );
+    if (!choice) return;
+    const result = await snoozeThread(threadRef, choice.snoozedUntil);
+    toastThreadActionFailure("Failed to snooze thread")(result);
+  };
   const shortcuts = {
     "thread.settle": () => {
       if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
@@ -670,6 +728,16 @@ export function useThreadLifecycle(input: ThreadLifecycleInput) {
       }
       if (settleAndAdvance(activeThreadRef)) return;
       void settleThread(activeThreadRef).then(toastThreadActionFailure("Failed to settle thread"));
+    },
+    "thread.snooze": () => {
+      if (!readEnvironmentScope(environmentId, AuthOrchestrationOperateScope)) return false;
+      if (!activeThreadShell || !activeThreadRef || !serverConfigLoaded) return;
+      if (activeThreadSnoozed) {
+        if (isUnsnoozing) return;
+        void handleUnsnoozeActiveThread();
+        return;
+      }
+      void handleSnoozeActiveThreadFromMenu(activeThreadRef);
     },
     "thread.pin": ({ event }) => {
       // An open project list pins its highlighted project with this key instead.

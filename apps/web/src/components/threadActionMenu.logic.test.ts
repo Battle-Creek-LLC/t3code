@@ -1,6 +1,10 @@
 import { describe, expect, it } from "vite-plus/test";
 
-import { buildThreadActionMenuItems, type ThreadActionMenuState } from "./threadActionMenu.logic";
+import {
+  buildSnoozeMenuItems,
+  buildThreadActionMenuItems,
+  type ThreadActionMenuState,
+} from "./threadActionMenu.logic";
 
 const baseState: ThreadActionMenuState = {
   canOperate: true,
@@ -73,5 +77,20 @@ describe("buildThreadActionMenuItems", () => {
     });
     expect(items.find((item) => item.id === "archive")?.disabled).toBe(true);
     expect(items.find((item) => item.id === "turn-into-project")?.disabled).toBe(true);
+  });
+});
+
+describe("buildSnoozeMenuItems", () => {
+  it("lists each preset, then a custom time after a separator", () => {
+    expect(buildSnoozeMenuItems(baseState.snoozePresets)).toEqual([
+      { id: "snooze:hour", label: "In 1 hour", detail: "3:00 PM" },
+      { id: "snooze:custom", label: "Custom…", separatorBefore: true },
+    ]);
+  });
+
+  it("offers only a custom time when no preset is configured", () => {
+    expect(buildSnoozeMenuItems([])).toEqual([
+      { id: "snooze:custom", label: "Custom…", separatorBefore: false },
+    ]);
   });
 });

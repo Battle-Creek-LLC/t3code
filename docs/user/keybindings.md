@@ -174,6 +174,10 @@ shortcut; assign one in **Settings → Keybindings**.
 `thread.regenerateTitle` generates a new title for the focused thread, like
 **Regenerate title** in the thread menu. It has no default shortcut.
 
+`thread.snooze` (`mod+alt+s` by default) snoozes the focused thread. It opens a
+menu of your snooze presets and **Custom…** under the thread's sidebar row. If the
+thread is already snoozed, it wakes the thread.
+
 `thread.undo` (`mod+z` by default) reverses the actions shown in the notice at the
 bottom of the sidebar, such as unpin, settle, snooze, archive, or discarding a
 draft. Consecutive

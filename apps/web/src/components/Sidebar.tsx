@@ -170,6 +170,7 @@ import { ProjectEnvironmentBadge } from "./ProjectEnvironmentBadge";
 import { ProjectRowActions } from "./ProjectComboboxRow";
 import {
   buildDraftActionMenuItems,
+  buildSnoozeMenuItems,
   buildThreadActionMenuItems,
   threadActionRequiresOperate,
 } from "./threadActionMenu.logic";
@@ -2348,20 +2349,10 @@ export default function Sidebar({ routeReveal }: { routeReveal: SidebarRouteReve
                     id: "snooze",
                     label: `Snooze (${count})`,
                     disabled: !canOperateThreads(selectedThreads),
-                    children: [
-                      ...snoozePresets.map((preset) => ({
-                        id: `snooze:${preset.id}`,
-                        label: preset.label,
-                        detail: preset.whenLabel,
-                        disabled: !canOperateThreads(selectedThreads),
-                      })),
-                      {
-                        id: "snooze:custom",
-                        label: "Custom…",
-                        separatorBefore: snoozePresets.length > 0,
-                        disabled: !canOperateThreads(selectedThreads),
-                      },
-                    ],
+                    children: buildSnoozeMenuItems(snoozePresets).map((item) => ({
+                      ...item,
+                      disabled: !canOperateThreads(selectedThreads),
+                    })),
                   },
                 ]
               : []),
